@@ -36,7 +36,7 @@ PREFERRED_SLOTS = [
 ]
 
 # T+3 currently matches actual API behavior
-BOOK_DAYS_AHEAD = 3
+BOOK_DAYS_AHEAD = 4
 
 # Retry aggressively around release time
 RETRY_COUNT = 30
