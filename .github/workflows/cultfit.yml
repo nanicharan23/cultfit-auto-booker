@@ -1,11 +1,10 @@
 name: CultFit Auto Booker
 
 on:
+  workflow_dispatch:
   schedule:
     # 10:30 PM IST = 17:00 UTC
-    - cron: '16 21 * * *'
-
-  workflow_dispatch:
+    - cron: "*/5 * * * *"  # Runs every 5 minutes for testing
 
 jobs:
   run-booker:
