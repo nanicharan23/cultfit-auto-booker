@@ -16,7 +16,8 @@ AT_COOKIE = os.getenv("AT_COOKIE")
 ST_COOKIE = os.getenv("ST_COOKIE")
 DEVICE_ID = os.getenv("DEVICE_ID")
 
-API_KEY   = "9d153009-e961-4718-a343-2a36b0a1d1fd"
+
+API_KEY = "9d153009-e961-4718-a343-2a36b0a1d1fd"
 CENTER_ID = 100
 
 # ──────────────────────────────────────────────
@@ -31,14 +32,14 @@ PREFERRED_CLASSES = [
 
 PREFERRED_SLOTS = [
     "07:00",
-    "08:00",
-    "20:00",
+    "08:00"
 ]
 
+# T+3 currently matches actual API behavior
 BOOK_DAYS_AHEAD = 3
 
-# Retry aggressively around 10PM release
-RETRY_COUNT = 20
+# Retry aggressively around release time
+RETRY_COUNT = 30
 RETRY_WAIT_SECONDS = 5
 
 LOG_DIR = "./logs"
@@ -74,6 +75,7 @@ COMMON_HEADERS = {
 # ──────────────────────────────────────────────
 
 def setup_logging():
+
     try:
         sys.stdout.reconfigure(encoding='utf-8')
         sys.stderr.reconfigure(encoding='utf-8')
@@ -107,7 +109,9 @@ def setup_logging():
 # ──────────────────────────────────────────────
 
 def verify_login():
+
     try:
+
         r = session.get(
             f"{BASE_URL}/api/cult/classes/v2?productType=FITNESS&centreId={CENTER_ID}",
             headers=COMMON_HEADERS,
@@ -131,7 +135,10 @@ def verify_login():
 
 def fetch_classes(date_str: str):
 
-    url = f"{BASE_URL}/api/cult/classes/v2?productType=FITNESS&centreId={CENTER_ID}"
+    url = (
+        f"{BASE_URL}/api/cult/classes/v2"
+        f"?productType=FITNESS&centreId={CENTER_ID}"
+    )
 
     r = session.get(
         url,
@@ -141,27 +148,116 @@ def fetch_classes(date_str: str):
 
     if r.status_code != 200:
         logger.error(f"❌ Fetch failed: HTTP {r.status_code}")
-        return []
+        return None
 
     data = r.json()
 
-    logger.info(
-        f"📦 Available dates: "
-        f"{list(data.get('classByDateMap', {}).keys())}"
+    available_dates = list(
+        data.get("classByDateMap", {}).keys()
     )
 
-    date_block = data.get("classByDateMap", {}).get(date_str, {})
+    logger.info(
+        f"📦 Available dates: {available_dates}"
+    )
+
+    # Date not released yet
+    if date_str not in available_dates:
+
+        logger.warning(
+            f"⚠️ Target date {date_str} not released yet."
+        )
+
+        return None
+
+    date_block = (
+        data.get("classByDateMap", {})
+        .get(date_str, {})
+    )
+
     time_slots = date_block.get("classByTimeList", [])
 
     classes = []
 
     for slot in time_slots:
-        for center_block in slot.get("centerWiseClasses", []):
+
+        for center_block in slot.get(
+            "centerWiseClasses",
+            []
+        ):
 
             if int(center_block.get("centerId", -1)) == int(CENTER_ID):
-                classes.extend(center_block.get("classes", []))
+
+                classes.extend(
+                    center_block.get("classes", [])
+                )
 
     return classes
+
+# ──────────────────────────────────────────────
+# 🧠 FIND BEST CLASS
+# ──────────────────────────────────────────────
+
+def find_best_class(classes):
+
+    PRIORITY_STATES = [
+        "AVAILABLE",
+        "BOOK_NOW"
+    ]
+
+    candidates = []
+
+    for c in classes:
+
+        name = c.get("workoutName", "").lower()
+        stime = c.get("startTime", "")[:5]
+        state = c.get("state", "").upper()
+
+        # Preferred class filter
+        if not any(
+            pref.lower() in name
+            for pref in PREFERRED_CLASSES
+        ):
+            continue
+
+        # Preferred slot filter
+        if stime not in PREFERRED_SLOTS:
+            continue
+
+        # Ignore waitlist completely
+        if state not in PRIORITY_STATES:
+            continue
+
+        class_priority = next(
+            (
+                i for i, p in enumerate(PREFERRED_CLASSES)
+                if p.lower() in name
+            ),
+            999
+        )
+
+        slot_priority = next(
+            (
+                i for i, t in enumerate(PREFERRED_SLOTS)
+                if stime == t
+            ),
+            999
+        )
+
+        state_priority = PRIORITY_STATES.index(state)
+
+        candidates.append((
+            class_priority,
+            slot_priority,
+            state_priority,
+            c
+        ))
+
+    if not candidates:
+        return None
+
+    candidates.sort()
+
+    return candidates[0][3]
 
 # ──────────────────────────────────────────────
 # 🎯 BOOK CLASS
@@ -175,11 +271,18 @@ def book_class(c):
     stime = c.get("startTime")
     date = c.get("date")
 
-    logger.info(f"\n🎯 Booking: {name} @ {stime} on {date}")
+    logger.info(
+        f"\n🎯 Booking: "
+        f"{name} @ {stime} on {date}"
+    )
 
-    url = f"{BASE_URL}/api/cult/class/{class_id}/book"
+    url = (
+        f"{BASE_URL}/api/cult/class/"
+        f"{class_id}/book"
+    )
 
     headers = COMMON_HEADERS.copy()
+
     headers["content-type"] = "application/json"
 
     r = session.post(
@@ -193,57 +296,41 @@ def book_class(c):
 
     try:
         body = r.json()
-    except:
+    except Exception:
         body = r.text[:300]
 
     if r.status_code in (200, 201):
+
         logger.info("✅ BOOKED SUCCESSFULLY")
+        logger.info(f"📄 Response: {body}")
+
         return True
 
     elif r.status_code == 409:
+
         logger.info("ℹ️ Already booked.")
         return True
 
     elif r.status_code == 401:
+
         logger.error("❌ Unauthorized — cookies expired.")
         return False
 
-    else:
-        logger.error(f"❌ Booking failed: {body}")
-        return False
+    elif r.status_code == 403:
 
-# ──────────────────────────────────────────────
-# 🧠 FIND BEST CLASS
-# ──────────────────────────────────────────────
-
-def find_best_class(classes):
-
-    for pref in PREFERRED_CLASSES:
-
-        matches = [
-            c for c in classes
-            if pref.lower() in c.get("workoutName", "").lower()
-            and c.get("startTime", "")[:5] in PREFERRED_SLOTS
-            and any(
-                x in c.get("state", "").upper()
-                for x in ("AVAILABLE", "BOOK_NOW")
-            )
-        ]
-
-        matches.sort(
-            key=lambda c: next(
-                (
-                    i for i, t in enumerate(PREFERRED_SLOTS)
-                    if c.get("startTime", "")[:5] == t
-                ),
-                99
-            )
+        logger.error(
+            f"❌ Booking not allowed yet: {body}"
         )
 
-        if matches:
-            return matches[0]
+        return False
 
-    return None
+    else:
+
+        logger.error(
+            f"❌ Booking failed: {body}"
+        )
+
+        return False
 
 # ──────────────────────────────────────────────
 # 🚀 MAIN
@@ -258,15 +345,18 @@ def run():
     logger.info("=" * 60)
 
     target_date = (
-        datetime.now() + timedelta(days=BOOK_DAYS_AHEAD)
+        datetime.now()
+        + timedelta(days=BOOK_DAYS_AHEAD)
     ).strftime("%Y-%m-%d")
 
-    logger.info(f"📅 Booking for: {target_date}")
+    logger.info(
+        f"📅 Booking target date: {target_date}"
+    )
 
     if not verify_login():
         return
 
-    classes = []
+    classes = None
 
     for attempt in range(1, RETRY_COUNT + 1):
 
@@ -277,24 +367,46 @@ def run():
 
         classes = fetch_classes(target_date)
 
-        if classes:
-            logger.info(f"✅ Found {len(classes)} classes.")
-            break
+        # Date not released yet
+        if classes is None:
+
+            logger.info(
+                f"⏳ Date not released yet. "
+                f"Retrying in "
+                f"{RETRY_WAIT_SECONDS}s..."
+            )
+
+            time.sleep(RETRY_WAIT_SECONDS)
+            continue
 
         logger.info(
-            f"⏳ No classes yet. "
-            f"Retrying in {RETRY_WAIT_SECONDS}s..."
+            f"✅ Found {len(classes)} classes."
         )
 
-        time.sleep(RETRY_WAIT_SECONDS)
+        break
+
+    if classes is None:
+
+        logger.error(
+            "❌ Date never became available."
+        )
+
+        return
 
     if not classes:
-        logger.error("❌ No classes found.")
+
+        logger.error(
+            "❌ No classes available."
+        )
+
         return
 
     logger.info("\n📋 ALL CLASSES:\n")
 
-    for c in sorted(classes, key=lambda x: x.get("startTime", "")):
+    for c in sorted(
+        classes,
+        key=lambda x: x.get("startTime", "")
+    ):
 
         logger.info(
             f"{c.get('workoutName'):30s} "
@@ -305,18 +417,26 @@ def run():
     best = find_best_class(classes)
 
     if not best:
-        logger.warning("⚠️ No preferred class available.")
+
+        logger.warning(
+            "⚠️ No preferred class found."
+        )
+
         return
 
     logger.info(
         f"\n🏆 Best match: "
         f"{best.get('workoutName')} "
-        f"@ {best.get('startTime')}"
+        f"@ {best.get('startTime')} "
+        f"[{best.get('state')}]"
     )
 
-    book_class(best)
+    success = book_class(best)
 
-    logger.info("\n✅ DONE")
+    if success:
+        logger.info("\n🎉 BOOKING FLOW COMPLETED")
+    else:
+        logger.error("\n❌ BOOKING FLOW FAILED")
 
 # ──────────────────────────────────────────────
 
