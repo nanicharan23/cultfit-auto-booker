@@ -1,15 +1,36 @@
 name: CultFit Auto Booker
 
 on:
+  schedule:
+  # 10:30 PM IST = 17:00 UTC
+  - cron: '0 17 * * *'
+
   workflow_dispatch:
 
 jobs:
-  run-script:
+  run-booker:
+
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+
+      - name: Checkout Repo
         uses: actions/checkout@v4
 
-      - name: Print Hello
-        run: echo "GitHub Actions working!"
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install Dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Run CultFit Booker
+        env:
+          AT_COOKIE: ${{ secrets.AT_COOKIE }}
+          ST_COOKIE: ${{ secrets.ST_COOKIE }}
+          DEVICE_ID: ${{ secrets.DEVICE_ID }}
+
+        run: |
+          python cultfit_auto_booker.py
