@@ -46,7 +46,7 @@ PREFERRED_SLOTS = [
 BOOK_DAYS_AHEAD = 4
 
 # Retry aggressively around release time
-RETRY_COUNT = 30
+RETRY_COUNT = 5
 RETRY_WAIT_SECONDS = 5
 
 LOG_DIR = "./logs"
