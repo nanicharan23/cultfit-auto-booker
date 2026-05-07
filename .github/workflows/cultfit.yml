@@ -2,8 +2,8 @@ name: CultFit Auto Booker
 
 on:
   schedule:
-  # 10:30 PM IST = 17:00 UTC
-  - cron: '4 21 * * *'
+    # 10:30 PM IST = 17:00 UTC
+    - cron: '0 17 * * *'
 
   workflow_dispatch:
 

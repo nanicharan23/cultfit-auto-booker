@@ -1,5 +1,7 @@
 from urllib.parse import unquote
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
 import requests
 import logging
 import os
@@ -9,13 +11,18 @@ import time
 logger = logging.getLogger(__name__)
 
 # ──────────────────────────────────────────────
+# 🌏 TIMEZONE
+# ──────────────────────────────────────────────
+
+IST = ZoneInfo("Asia/Kolkata")
+
+# ──────────────────────────────────────────────
 # ✏️  YOUR CREDENTIALS
 # ──────────────────────────────────────────────
 
 AT_COOKIE = os.getenv("AT_COOKIE")
 ST_COOKIE = os.getenv("ST_COOKIE")
 DEVICE_ID = os.getenv("DEVICE_ID")
-
 
 API_KEY = "9d153009-e961-4718-a343-2a36b0a1d1fd"
 CENTER_ID = 100
@@ -32,10 +39,10 @@ PREFERRED_CLASSES = [
 
 PREFERRED_SLOTS = [
     "07:00",
-    "08:00"
+    "08:00",
 ]
 
-# T+3 currently matches actual API behavior
+# Run after 10 PM IST release
 BOOK_DAYS_AHEAD = 4
 
 # Retry aggressively around release time
@@ -86,7 +93,7 @@ def setup_logging():
 
     log_file = os.path.join(
         LOG_DIR,
-        f"CultFitBooker_{datetime.now().strftime('%Y-%m-%d')}.log"
+        f"CultFitBooker_{datetime.now(IST).strftime('%Y-%m-%d')}.log"
     )
 
     logger.setLevel(logging.INFO)
@@ -344,8 +351,15 @@ def run():
     logger.info("🏋️ CULT.FIT AUTO BOOKER (API VERSION)")
     logger.info("=" * 60)
 
+    ist_now = datetime.now(IST)
+
+    logger.info(
+        f"🕒 Current IST time: "
+        f"{ist_now.strftime('%Y-%m-%d %H:%M:%S')}"
+    )
+
     target_date = (
-        datetime.now()
+        ist_now
         + timedelta(days=BOOK_DAYS_AHEAD)
     ).strftime("%Y-%m-%d")
 
