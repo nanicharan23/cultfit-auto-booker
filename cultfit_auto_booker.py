@@ -24,7 +24,7 @@ AT_COOKIE = os.getenv("AT_COOKIE")
 ST_COOKIE = os.getenv("ST_COOKIE")
 DEVICE_ID = os.getenv("DEVICE_ID")
 
-API_KEY = "9d153009-e961-4718-a343-2a36b0a1d1fd"
+API_KEY   = "9d153009-e961-4718-a343-2a36b0a1d1fd"
 CENTER_ID = 100
 
 # ──────────────────────────────────────────────
@@ -42,16 +42,11 @@ PREFERRED_SLOTS = [
     "08:00",
 ]
 
-# Run after 10 PM IST release
-BOOK_DAYS_AHEAD = 4
-
-# Retry aggressively around release time
-RETRY_COUNT = 5
-RETRY_WAIT_SECONDS = 5
-
-LOG_DIR = "./logs"
-
-BASE_URL = "https://www.cult.fit"
+BOOK_DAYS_AHEAD      = 4
+RETRY_COUNT          = 5
+RETRY_WAIT_SECONDS   = 5
+LOG_DIR              = "./logs"
+BASE_URL             = "https://www.cult.fit"
 
 # ──────────────────────────────────────────────
 # 🌐 REQUEST SESSION
@@ -59,17 +54,17 @@ BASE_URL = "https://www.cult.fit"
 
 session = requests.Session()
 
-session.cookies.set("at", unquote(AT_COOKIE))
-session.cookies.set("st", unquote(ST_COOKIE))
+session.cookies.set("at",       unquote(AT_COOKIE))
+session.cookies.set("st",       unquote(ST_COOKIE))
 session.cookies.set("deviceId", DEVICE_ID)
 
 COMMON_HEADERS = {
-    "accept": "application/json",
-    "apikey": API_KEY,
-    "appversion": "7",
-    "browsername": "Web",
-    "osname": "browser",
-    "timezone": "Asia/Kolkata",
+    "accept":       "application/json",
+    "apikey":       API_KEY,
+    "appversion":   "7",
+    "browsername":  "Web",
+    "osname":       "browser",
+    "timezone":     "Asia/Kolkata",
     "user-agent": (
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -82,7 +77,6 @@ COMMON_HEADERS = {
 # ──────────────────────────────────────────────
 
 def setup_logging():
-
     try:
         sys.stdout.reconfigure(encoding='utf-8')
         sys.stderr.reconfigure(encoding='utf-8')
@@ -90,14 +84,12 @@ def setup_logging():
         pass
 
     os.makedirs(LOG_DIR, exist_ok=True)
-
     log_file = os.path.join(
         LOG_DIR,
         f"CultFitBooker_{datetime.now(IST).strftime('%Y-%m-%d')}.log"
     )
 
     logger.setLevel(logging.INFO)
-
     fmt = logging.Formatter(
         '%(asctime)s - %(levelname)s - %(message)s',
         datefmt='%Y-%m-%d %H:%M:%S'
@@ -115,25 +107,62 @@ def setup_logging():
 # 🔐 VERIFY LOGIN
 # ──────────────────────────────────────────────
 
-def verify_login():
-
+def verify_login() -> bool:
     try:
-
         r = session.get(
             f"{BASE_URL}/api/cult/classes/v2?productType=FITNESS&centreId={CENTER_ID}",
             headers=COMMON_HEADERS,
             timeout=20
         )
-
         if r.status_code == 401:
             logger.error("❌ Unauthorized — cookies expired.")
             return False
-
         logger.info("✅ Login verified.")
         return True
-
     except Exception as e:
         logger.error(f"❌ Login check failed: {e}")
+        return False
+
+# ──────────────────────────────────────────────
+# 🔍 CHECK EXISTING BOOKING
+# ──────────────────────────────────────────────
+
+def is_already_booked(date_str: str) -> bool:
+    """
+    Returns True if there is already a confirmed booking
+    for the given date at CENTER_ID.
+    Checks the class list for the date — if any class has
+    state containing 'BOOKED' or 'BOOKING_CONFIRMED', we skip.
+    """
+    try:
+        r = session.get(
+            f"{BASE_URL}/api/cult/classes/v2?productType=FITNESS&centreId={CENTER_ID}",
+            headers=COMMON_HEADERS,
+            timeout=20
+        )
+        if r.status_code != 200:
+            logger.warning(f"⚠️ Could not check existing bookings (HTTP {r.status_code}) — proceeding anyway.")
+            return False
+
+        data       = r.json()
+        date_block = data.get("classByDateMap", {}).get(date_str, {})
+        time_slots = date_block.get("classByTimeList", [])
+
+        for slot in time_slots:
+            for center_block in slot.get("centerWiseClasses", []):
+                if int(center_block.get("centerId", -1)) == int(CENTER_ID):
+                    for c in center_block.get("classes", []):
+                        state = c.get("state", "").upper()
+                        if any(s in state for s in ("BOOKED", "BOOKING_CONFIRMED", "CHECKED_IN")):
+                            name  = c.get("workoutName", "?")
+                            stime = c.get("startTime", "?")
+                            logger.info(f"✅ Already booked: {name} @ {stime} on {date_str} — skipping.")
+                            return True
+
+        return False
+
+    except Exception as e:
+        logger.warning(f"⚠️ Booking check error: {e} — proceeding anyway.")
         return False
 
 # ──────────────────────────────────────────────
@@ -141,14 +170,8 @@ def verify_login():
 # ──────────────────────────────────────────────
 
 def fetch_classes(date_str: str):
-
-    url = (
-        f"{BASE_URL}/api/cult/classes/v2"
-        f"?productType=FITNESS&centreId={CENTER_ID}"
-    )
-
     r = session.get(
-        url,
+        f"{BASE_URL}/api/cult/classes/v2?productType=FITNESS&centreId={CENTER_ID}",
         headers=COMMON_HEADERS,
         timeout=30
     )
@@ -157,46 +180,22 @@ def fetch_classes(date_str: str):
         logger.error(f"❌ Fetch failed: HTTP {r.status_code}")
         return None
 
-    data = r.json()
+    data            = r.json()
+    available_dates = list(data.get("classByDateMap", {}).keys())
+    logger.info(f"📦 Available dates: {available_dates}")
 
-    available_dates = list(
-        data.get("classByDateMap", {}).keys()
-    )
-
-    logger.info(
-        f"📦 Available dates: {available_dates}"
-    )
-
-    # Date not released yet
     if date_str not in available_dates:
-
-        logger.warning(
-            f"⚠️ Target date {date_str} not released yet."
-        )
-
+        logger.warning(f"⚠️ Target date {date_str} not released yet.")
         return None
 
-    date_block = (
-        data.get("classByDateMap", {})
-        .get(date_str, {})
-    )
-
+    date_block = data.get("classByDateMap", {}).get(date_str, {})
     time_slots = date_block.get("classByTimeList", [])
 
     classes = []
-
     for slot in time_slots:
-
-        for center_block in slot.get(
-            "centerWiseClasses",
-            []
-        ):
-
+        for center_block in slot.get("centerWiseClasses", []):
             if int(center_block.get("centerId", -1)) == int(CENTER_ID):
-
-                classes.extend(
-                    center_block.get("classes", [])
-                )
+                classes.extend(center_block.get("classes", []))
 
     return classes
 
@@ -204,96 +203,53 @@ def fetch_classes(date_str: str):
 # 🧠 FIND BEST CLASS
 # ──────────────────────────────────────────────
 
-def find_best_class(classes):
+def find_best_class(classes: list) -> dict | None:
+    """
+    Priority:
+      1. Morning slots first (all preferred classes), then evening
+      2. Within each time bucket: class order from PREFERRED_CLASSES
+      3. Within each class: slot order from PREFERRED_SLOTS
+    Only considers AVAILABLE / BOOK_NOW states (no waitlist).
+    """
+    MORNING_SLOTS  = {t for t in PREFERRED_SLOTS if int(t.split(":")[0]) < 12}
+    EVENING_SLOTS  = {t for t in PREFERRED_SLOTS if int(t.split(":")[0]) >= 12}
+    PRIORITY_STATES = {"AVAILABLE", "BOOK_NOW"}
 
-    PRIORITY_STATES = [
-        "AVAILABLE",
-        "BOOK_NOW"
-    ]
-
-    candidates = []
-
-    for c in classes:
-
-        name = c.get("workoutName", "").lower()
-        stime = c.get("startTime", "")[:5]
-        state = c.get("state", "").upper()
-
-        # Preferred class filter
-        if not any(
-            pref.lower() in name
-            for pref in PREFERRED_CLASSES
-        ):
+    for time_bucket in [MORNING_SLOTS, EVENING_SLOTS]:
+        if not time_bucket:
             continue
+        for pref in PREFERRED_CLASSES:
+            matches = [
+                c for c in classes
+                if pref.lower() in c.get("workoutName", "").lower()
+                and c.get("startTime", "")[:5] in time_bucket
+                and c.get("state", "").upper() in PRIORITY_STATES
+            ]
+            matches.sort(key=lambda c: next(
+                (i for i, t in enumerate(PREFERRED_SLOTS)
+                 if c.get("startTime", "")[:5] == t), 99
+            ))
+            if matches:
+                return matches[0]
 
-        # Preferred slot filter
-        if stime not in PREFERRED_SLOTS:
-            continue
-
-        # Ignore waitlist completely
-        if state not in PRIORITY_STATES:
-            continue
-
-        class_priority = next(
-            (
-                i for i, p in enumerate(PREFERRED_CLASSES)
-                if p.lower() in name
-            ),
-            999
-        )
-
-        slot_priority = next(
-            (
-                i for i, t in enumerate(PREFERRED_SLOTS)
-                if stime == t
-            ),
-            999
-        )
-
-        state_priority = PRIORITY_STATES.index(state)
-
-        candidates.append((
-            class_priority,
-            slot_priority,
-            state_priority,
-            c
-        ))
-
-    if not candidates:
-        return None
-
-    candidates.sort()
-
-    return candidates[0][3]
+    return None
 
 # ──────────────────────────────────────────────
 # 🎯 BOOK CLASS
 # ──────────────────────────────────────────────
 
-def book_class(c):
-
+def book_class(c: dict) -> bool:
     class_id = str(c["id"])
+    name     = c.get("workoutName")
+    stime    = c.get("startTime")
+    date     = c.get("date")
 
-    name = c.get("workoutName")
-    stime = c.get("startTime")
-    date = c.get("date")
+    logger.info(f"\n🎯 Booking: {name} @ {stime} on {date}")
 
-    logger.info(
-        f"\n🎯 Booking: "
-        f"{name} @ {stime} on {date}"
-    )
-
-    url = (
-        f"{BASE_URL}/api/cult/class/"
-        f"{class_id}/book"
-    )
-
-    headers = COMMON_HEADERS.copy()
-
-    headers["content-type"] = "application/json"
+    headers = {**COMMON_HEADERS, "content-type": "application/json"}
 
     r = session.post(
-        url,
+        f"{BASE_URL}/api/cult/class/{class_id}/book",
         headers=headers,
         json={},
         timeout=20
@@ -307,36 +263,20 @@ def book_class(c):
         body = r.text[:300]
 
     if r.status_code in (200, 201):
-
         logger.info("✅ BOOKED SUCCESSFULLY")
         logger.info(f"📄 Response: {body}")
-
         return True
-
     elif r.status_code == 409:
-
         logger.info("ℹ️ Already booked.")
         return True
-
     elif r.status_code == 401:
-
         logger.error("❌ Unauthorized — cookies expired.")
         return False
-
     elif r.status_code == 403:
-
-        logger.error(
-            f"❌ Booking not allowed yet: {body}"
-        )
-
+        logger.error(f"❌ Booking not allowed yet: {body}")
         return False
-
     else:
-
-        logger.error(
-            f"❌ Booking failed: {body}"
-        )
-
+        logger.error(f"❌ Booking failed: {body}")
         return False
 
 # ──────────────────────────────────────────────
@@ -344,115 +284,79 @@ def book_class(c):
 # ──────────────────────────────────────────────
 
 def run():
-
     setup_logging()
 
     logger.info("=" * 60)
-    logger.info("🏋️ CULT.FIT AUTO BOOKER (API VERSION)")
+    logger.info("🏋️  CULT.FIT AUTO BOOKER (API VERSION)")
     logger.info("=" * 60)
 
-    ist_now = datetime.now(IST)
+    ist_now     = datetime.now(IST)
+    target_date = (ist_now + timedelta(days=BOOK_DAYS_AHEAD)).strftime("%Y-%m-%d")
+    target_str  = (ist_now + timedelta(days=BOOK_DAYS_AHEAD)).strftime("%A, %d %b")
 
-    logger.info(
-        f"🕒 Current IST time: "
-        f"{ist_now.strftime('%Y-%m-%d %H:%M:%S')}"
-    )
-
-    target_date = (
-        ist_now
-        + timedelta(days=BOOK_DAYS_AHEAD)
-    ).strftime("%Y-%m-%d")
-
-    logger.info(
-        f"📅 Booking target date: {target_date}"
-    )
+    logger.info(f"🕒 Current IST time : {ist_now.strftime('%Y-%m-%d %H:%M:%S')}")
+    logger.info(f"📅 Booking for      : {target_str} ({target_date})")
 
     if not verify_login():
         return
 
+    # ── Check if already booked for target date ───────────────
+    logger.info(f"\n🔍 Checking existing bookings for {target_str}...")
+    if is_already_booked(target_date):
+        logger.info("🎉 Already have a booking — nothing to do!")
+        return
+
+    logger.info("  No existing booking found — proceeding.")
+
+    # ── Fetch classes with retry ──────────────────────────────
     classes = None
-
     for attempt in range(1, RETRY_COUNT + 1):
-
-        logger.info(
-            f"\n🔍 Fetch attempt "
-            f"{attempt}/{RETRY_COUNT}"
-        )
-
+        logger.info(f"\n🔍 Fetch attempt {attempt}/{RETRY_COUNT}...")
         classes = fetch_classes(target_date)
 
-        # Date not released yet
-        if classes is None:
+        if classes is not None:
+            logger.info(f"✅ Found {len(classes)} classes.")
+            break
 
-            logger.info(
-                f"⏳ Date not released yet. "
-                f"Retrying in "
-                f"{RETRY_WAIT_SECONDS}s..."
-            )
-
-            time.sleep(RETRY_WAIT_SECONDS)
-            continue
-
-        logger.info(
-            f"✅ Found {len(classes)} classes."
-        )
-
-        break
+        logger.info(f"⏳ Not released yet — retrying in {RETRY_WAIT_SECONDS}s...")
+        time.sleep(RETRY_WAIT_SECONDS)
 
     if classes is None:
-
-        logger.error(
-            "❌ Date never became available."
-        )
-
+        logger.error("❌ Target date never became available after all retries.")
         return
 
     if not classes:
-
-        logger.error(
-            "❌ No classes available."
-        )
-
+        logger.error("❌ No classes returned for target date.")
         return
 
-    logger.info("\n📋 ALL CLASSES:\n")
-
-    for c in sorted(
-        classes,
-        key=lambda x: x.get("startTime", "")
-    ):
-
+    # ── Print all classes ─────────────────────────────────────
+    logger.info(f"\n📋 All classes on {target_str}:\n")
+    for c in sorted(classes, key=lambda x: x.get("startTime", "")):
         logger.info(
-            f"{c.get('workoutName'):30s} "
-            f"{c.get('startTime')} "
-            f"state={c.get('state')}"
+            f"  {c.get('workoutName','?'):35s}  "
+            f"{c.get('startTime','?')}  "
+            f"seats={c.get('availableSeats','?')}  "
+            f"state={c.get('state','?')}"
         )
 
+    # ── Find and book best class ──────────────────────────────
     best = find_best_class(classes)
 
     if not best:
-
-        logger.warning(
-            "⚠️ No preferred class found."
-        )
-
+        logger.warning("\n⚠️  No preferred available class found.")
+        logger.info("Tip: Check class names above and update PREFERRED_CLASSES.")
         return
 
     logger.info(
-        f"\n🏆 Best match: "
-        f"{best.get('workoutName')} "
-        f"@ {best.get('startTime')} "
-        f"[{best.get('state')}]"
+        f"\n🏆 Best match: {best.get('workoutName')} "
+        f"@ {best.get('startTime')} [{best.get('state')}]"
     )
 
-    success = book_class(best)
-
-    if success:
-        logger.info("\n🎉 BOOKING FLOW COMPLETED")
+    if book_class(best):
+        logger.info("\n🎉 BOOKING COMPLETE!")
     else:
-        logger.error("\n❌ BOOKING FLOW FAILED")
+        logger.error("\n❌ BOOKING FAILED.")
 
-# ──────────────────────────────────────────────
 
 if __name__ == "__main__":
     run()

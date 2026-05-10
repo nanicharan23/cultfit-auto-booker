@@ -2,34 +2,34 @@ name: CultFit Auto Booker
 
 on:
   workflow_dispatch:
-  schedule:
-    # 10:30 PM IST = 17:00 UTC
-    - cron: "*/5 * * * *"  # Runs every 5 minutes for testing
+    schedule:
+        # 10:30 PM IST = 17:00 UTC
+            - cron: "*/5 * * * *"  # Runs every 5 minutes for testing
 
-jobs:
-  run-booker:
+            jobs:
+              run-booker:
 
-    runs-on: ubuntu-latest
+                  runs-on: ubuntu-latest
 
-    steps:
+                      steps:
 
-      - name: Checkout Repo
-        uses: actions/checkout@v4
+                            - name: Checkout Repo
+                                    uses: actions/checkout@v4
 
-      - name: Setup Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.11'
+                                          - name: Setup Python
+                                                  uses: actions/setup-python@v5
+                                                          with:
+                                                                    python-version: '3.11'
 
-      - name: Install Dependencies
-        run: |
-          pip install -r requirements.txt
+                                                                          - name: Install Dependencies
+                                                                                  run: |
+                                                                                            pip install -r requirements.txt
 
-      - name: Run CultFit Booker
-        env:
-          AT_COOKIE: ${{ secrets.AT_COOKIE }}
-          ST_COOKIE: ${{ secrets.ST_COOKIE }}
-          DEVICE_ID: ${{ secrets.DEVICE_ID }}
+                                                                                                  - name: Run CultFit Booker
+                                                                                                          env:
+                                                                                                                    AT_COOKIE: ${{ secrets.AT_COOKIE }}
+                                                                                                                              ST_COOKIE: ${{ secrets.ST_COOKIE }}
+                                                                                                                                        DEVICE_ID: ${{ secrets.DEVICE_ID }}
 
-        run: |
-          python cultfit_auto_booker.py
+                                                                                                                                                run: |
+                                                                                                                                                          python cultfit_auto_booker.py
