@@ -42,7 +42,7 @@ PREFERRED_SLOTS = [
     "08:00",
 ]
 
-BOOK_DAYS_AHEAD      = 4
+BOOK_DAYS_AHEAD      = 3
 RETRY_COUNT          = 5
 RETRY_WAIT_SECONDS   = 5
 LOG_DIR              = "./logs"
