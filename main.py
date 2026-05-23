@@ -54,6 +54,10 @@ BASE_URL             = "https://www.cult.fit"
 
 session = requests.Session()
 
+print("AT_COOKIE:", AT_COOKIE)
+print("ST_COOKIE:", ST_COOKIE)
+print("DEVICE_ID:", DEVICE_ID)
+
 session.cookies.set("at",       unquote(AT_COOKIE))
 session.cookies.set("st",       unquote(ST_COOKIE))
 session.cookies.set("deviceId", DEVICE_ID)
